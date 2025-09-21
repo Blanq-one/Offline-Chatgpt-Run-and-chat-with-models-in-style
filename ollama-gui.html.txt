@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ollama Chat UI</title>
+  <style>
+    /* You can keep your existing CSS here */
+    body, html {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+    .app-container { display: flex; height: 100vh; }
+    .sidebar { width: 250px; background: #f5f5f5; padding: 10px; display: flex; flex-direction: column; }
+    .main-content { flex-grow: 1; display: flex; flex-direction: column; }
+    .chat-header { display: flex; justify-content: space-between; padding: 10px; background: #eee; align-items: center; }
+    .messages-container { flex-grow: 1; overflow-y: auto; padding: 10px; background: #fff; }
+    .input-container { padding: 10px; background: #eee; }
+    .input-box { display: flex; gap: 10px; }
+    .message-input { flex-grow: 1; padding: 10px; }
+    .send-btn { padding: 10px 20px; cursor: pointer; }
+    .message { margin-bottom: 15px; }
+    .message.user { text-align: right; }
+    .message.assistant { text-align: left; }
+    .message-content { background: #f0f0f0; display: inline-block; padding: 8px 12px; border-radius: 8px; }
+    .message.user .message-content { background: #d1e7dd; }
+    .message.loading .message-content { font-style: italic; color: #888; }
+    .settings-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); justify-content: center; align-items: center; }
+    .settings-modal { background: white; padding: 20px; border-radius: 10px; }
+    .theme-options { display: flex; gap: 10px; }
+    .theme-option.active { font-weight: bold; }
+    [data-theme="dark"] { background: #121212; color: white; }
+    [data-theme="dark"] .main-content, [data-theme="dark"] .sidebar, [data-theme="dark"] .chat-header, [data-theme="dark"] .input-container { background: #1e1e1e; }
+    [data-theme="dark"] .message-content { background: #2e2e2e; color: white; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <button class="new-chat-btn" id="newChatBtn">+ New chat</button>
+      </div>
+      <div class="sidebar-content">
+        <div class="chat-history" id="chatHistory">
+          <div class="chat-item active">💬 Current conversation</div>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="settings-item" id="settingsBtn">⚙️ Settings</div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <div class="chat-header">
+        <select class="model-select" id="inlineModelSelect">
+          <option value="gemma2:2b">Gemma 2:2B</option>
+          <option value="gemma2:9b">Gemma 2:9B</option>
+          <option value="gemma2:27b">Gemma 2:27B</option>
+          <option value="llama3.2">Llama 3.2</option>
+          <option value="codellama">Code Llama</option>
+        </select>
+        <div class="header-actions">
+          <button class="header-btn" id="themeToggle">🌙</button>
+        </div>
+      </div>
+
+      <div class="messages-container" id="messagesContainer">
+        <div class="messages-wrapper" id="messagesWrapper">
+          <div class="welcome-screen" id="welcomeScreen">
+            <div class="welcome-icon">🤖</div>
+            <h1 class="welcome-title">Hello there!</h1>
+            <p class="welcome-subtitle">I'm Gemma 3 running on Ollama. How can I help you today?</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-container">
+        <div class="input-wrapper">
+          <div class="input-box">
+            <textarea class="message-input" id="messageInput" placeholder="Message..." rows="1"></textarea>
+            <button class="send-btn" id="sendBtn">↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="settings-overlay" id="settingsOverlay">
+    <div class="settings-modal">
+      <div class="settings-header">
+        <h2 class="settings-title">Settings</h2>
+        <button class="close-btn" id="closeSettingsBtn">×</button>
+      </div>
+      <div class="settings-group">
+        <label>Appearance</label>
+        <div class="theme-options">
+          <div class="theme-option active" data-theme="light">☀️ Light</div>
+          <div class="theme-option" data-theme="dark">🌙 Dark</div>
+        </div>
+      </div>
+      <div class="settings-group">
+        <label>Model</label>
+        <select class="model-select" id="modelSelect">
+          <option value="gemma2:2b">Gemma 2:2B</option>
+          <option value="gemma2:9b">Gemma 2:9B</option>
+          <option value="gemma2:27b">Gemma 2:27B</option>
+          <option value="llama3.2">Llama 3.2</option>
+          <option value="codellama">Code Llama</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript -->
+  <script>
+    let currentModel = 'gemma2:2b';
+    let currentTheme = 'light';
+
+    const modelSelect = document.getElementById('modelSelect');
+    const inlineModelSelect = document.getElementById('inlineModelSelect');
+    const themeToggle = document.getElementById('themeToggle');
+    const themeOptions = document.querySelectorAll('.theme-option');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsOverlay = document.getElementById('settingsOverlay');
+    const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+    const newChatBtn = document.getElementById('newChatBtn');
+    const messagesWrapper = document.getElementById('messagesWrapper');
+    const welcomeScreen = document.getElementById('welcomeScreen');
+
+    let messageCount = 0;
+
+    initializeApp();
+
+    function initializeApp() {
+      loadSettings();
+      setupEventListeners();
+    }
+
+    function loadSettings() {
+      const savedTheme = localStorage.getItem('ollama-theme') || 'light';
+      const savedModel = localStorage.getItem('ollama-model') || 'gemma2:2b';
+      setTheme(savedTheme);
+      setModel(savedModel);
+      themeToggle.textContent = savedTheme === 'light' ? '🌙' : '☀️';
+    }
+
+    function setupEventListeners() {
+      themeToggle.addEventListener('click', toggleTheme);
+      themeOptions.forEach(option => {
+        option.addEventListener('click', () => {
+          setTheme(option.dataset.theme);
+          localStorage.setItem('ollama-theme', option.dataset.theme);
+        });
+      });
+
+      modelSelect.addEventListener('change', (e) => {
+        setModel(e.target.value);
+        localStorage.setItem('ollama-model', e.target.value);
+      });
+
+      inlineModelSelect.addEventListener('change', (e) => {
+        setModel(e.target.value);
+        localStorage.setItem('ollama-model', e.target.value);
+      });
+
+      messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      sendBtn.addEventListener('click', sendMessage);
+      settingsBtn.addEventListener('click', () => settingsOverlay.style.display = 'flex');
+      closeSettingsBtn.addEventListener('click', () => settingsOverlay.style.display = 'none');
+      settingsOverlay.addEventListener('click', (e) => {
+        if (e.target === settingsOverlay) settingsOverlay.style.display = 'none';
+      });
+
+      newChatBtn.addEventListener('click', newChat);
+    }
+
+    function setTheme(theme) {
+      currentTheme = theme;
+      document.documentElement.setAttribute('data-theme', theme);
+      themeOptions.forEach(option => {
+        option.classList.toggle('active', option.dataset.theme === theme);
+      });
+      themeToggle.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
+
+    function toggleTheme() {
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+      localStorage.setItem('ollama-theme', newTheme);
+    }
+
+    function setModel(model) {
+      currentModel = model;
+      modelSelect.value = model;
+      inlineModelSelect.value = model;
+    }
+
+    function addMessage(content, isUser) {
+      if (messageCount === 0) welcomeScreen.style.display = 'none';
+      messageCount++;
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+      messageDiv.innerHTML = `
+        <div class="message-content">${content}</div>
+      `;
+      messagesWrapper.appendChild(messageDiv);
+      messageDiv.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function sendMessage() {
+      const content = messageInput.value.trim();
+      if (!content) return;
+
+      addMessage(content, true);
+      messageInput.value = '';
+
+      const loadingMessageDiv = document.createElement('div');
+      loadingMessageDiv.className = 'message assistant loading';
+      loadingMessageDiv.innerHTML = `<div class="message-content">...</div>`;
+      messagesWrapper.appendChild(loadingMessageDiv);
+      loadingMessageDiv.scrollIntoView({ behavior: 'smooth' });
+
+      try {
+        const response = await fetch('http://localhost:11434/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: currentModel,
+            prompt: content,
+            stream: false
+          })
+        });
+
+        const data = await response.json();
+        loadingMessageDiv.querySelector('.message-content').textContent = data.response;
+        loadingMessageDiv.classList.remove('loading');
+      } catch (error) {
+        loadingMessageDiv.querySelector('.message-content').textContent = '⚠️ Failed to connect to Ollama.';
+        console.error(error);
+      }
+    }
+
+    function newChat() {
+      messagesWrapper.innerHTML = `
+        <div class="welcome-screen">
+          <div class="welcome-icon">🤖</div>
+          <h1 class="welcome-title">Hello there!</h1>
+          <p class="welcome-subtitle">I'm Gemma 3 running on Ollama. How can I help you today?</p>
+        </div>
+      `;
+      messageCount = 0;
+      messageInput.focus();
+    }
+  </script>
+</body>
+</html>
